@@ -328,6 +328,10 @@ type Config struct {
 	// asynchronous I/O operations.
 	IOUring bool `flag:"iouring"`
 
+	// ExperimentalSentryEBPF enables the sandbox-local eBPF subsystem in the
+	// sentry. It never passes workload bpf(2) calls through to the host.
+	ExperimentalSentryEBPF bool `flag:"experimental-sentry-ebpf"`
+
 	// DirectFS sets up the sandbox to directly access/mutate the filesystem from
 	// the sentry. Sentry runs with escalated privileges. Gofer process still
 	// exists, but is mostly idle. Not supported in rootless mode.

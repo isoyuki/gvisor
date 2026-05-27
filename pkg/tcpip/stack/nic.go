@@ -420,6 +420,7 @@ func (n *nic) writeRawPacketWithLinkHeaderInPayload(pkt *PacketBuffer) tcpip.Err
 func (n *nic) writeRawPacket(pkt *PacketBuffer) tcpip.Error {
 	// Always an outgoing packet.
 	pkt.PktType = tcpip.PacketOutgoing
+	n.stack.observeNetworkPacket(NetworkPacketEgress, n.id, pkt.NetworkProtocolNumber, pkt)
 
 	if n.deliverLinkPackets {
 		n.DeliverLinkPacket(pkt.NetworkProtocolNumber, pkt)
@@ -765,6 +766,7 @@ func (n *nic) DeliverNetworkPacket(protocol tcpip.NetworkProtocolNumber, pkt *Pa
 
 	n.stats.rx.packets.Increment()
 	n.stats.rx.bytes.IncrementBy(uint64(pkt.Data().Size()))
+	n.stack.observeNetworkPacket(NetworkPacketIngress, n.id, protocol, pkt)
 
 	networkEndpoint := n.getNetworkEndpoint(protocol)
 	if networkEndpoint == nil {

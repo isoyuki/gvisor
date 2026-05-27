@@ -372,6 +372,7 @@ go_library(
         "//pkg/sentry/arch",
         "//pkg/sentry/checkpoint",
         "//pkg/sentry/devices/nvproxy/nvconf",
+        "//pkg/sentry/ebpf",
         "//pkg/sentry/fdcollector",
         "//pkg/sentry/fscheckpoint",
         "//pkg/sentry/fsimpl/kernfs",

@@ -45,6 +45,7 @@ go_library(
         "//pkg/metric",
         "//pkg/refs",
         "//pkg/sentry/arch",
+        "//pkg/sentry/ebpf",
         "//pkg/sentry/fsimpl/sockfs",
         "//pkg/sentry/inet",
         "//pkg/sentry/kernel",

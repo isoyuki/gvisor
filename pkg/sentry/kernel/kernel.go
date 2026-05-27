@@ -58,6 +58,7 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/arch"
 	"gvisor.dev/gvisor/pkg/sentry/checkpoint"
 	"gvisor.dev/gvisor/pkg/sentry/devices/nvproxy/nvconf"
+	"gvisor.dev/gvisor/pkg/sentry/ebpf"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/nsfs"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/pipefs"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/sockfs"
@@ -399,6 +400,12 @@ type Kernel struct {
 	// IOUringEnabled determines if io_uring is enabled.
 	IOUringEnabled bool
 
+	// SentryEBPFConfig controls sandbox-local eBPF support.
+	SentryEBPFConfig ebpf.Config `state:"nosave"`
+
+	// ebpf is the sandbox-local eBPF manager.
+	ebpf *ebpf.Manager `state:"nosave"`
+
 	// MaxKeySetSize is the maximum number of keys in a key set.
 	MaxKeySetSize atomicbitops.Int32
 
@@ -533,6 +540,13 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	k.MaxFDLimit.Store(args.MaxFDLimit)
 	k.containerNames = make(map[string]string)
 	k.CheckpointWait.k = k
+	if k.SentryEBPFConfig.Enabled {
+		cfg := k.SentryEBPFConfig
+		if cfg.MaxProgramInsns == 0 {
+			cfg = ebpf.DefaultConfig(true)
+		}
+		k.ebpf = ebpf.NewManager(cfg)
+	}
 
 	ctx := k.SupervisorContext()
 	if err := k.vfs.Init(ctx); err != nil {
@@ -652,6 +666,9 @@ func savePrivateMFs(ctx context.Context, w io.Writer, mfsToSave map[checkpoint.R
 func (k *Kernel) SaveTo(ctx context.Context, stateFile, pagesMetadata io.WriteCloser, pagesFile stateio.AsyncWriter, appMFExcludeCommittedZeroPages, resume bool) error {
 	if hostarch.PageSize != 4096 {
 		return fmt.Errorf("save is not supported with %dK page size", hostarch.PageSize/1024)
+	}
+	if k.ebpf != nil && k.ebpf.HasObjects() {
+		return fmt.Errorf("save is not supported with live sentry eBPF objects")
 	}
 	saveStart := time.Now()
 
@@ -1757,6 +1774,11 @@ func (k *Kernel) MonotonicClock() ktime.SampledClock {
 // Syslog returns the syslog.
 func (k *Kernel) Syslog() *syslog {
 	return &k.syslog
+}
+
+// EBPF returns the sandbox-local eBPF manager, if enabled.
+func (k *Kernel) EBPF() *ebpf.Manager {
+	return k.ebpf
 }
 
 // GenerateInotifyCookie generates a unique inotify event cookie.

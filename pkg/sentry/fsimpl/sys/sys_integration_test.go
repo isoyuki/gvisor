@@ -119,10 +119,45 @@ func TestCgroupMountpointExists(t *testing.T) {
 	defer s.Destroy()
 	pop := s.PathOpAtRoot("/fs")
 	s.AssertAllDirentTypes(s.ListDirents(pop), map[string]testutil.DirentType{
+		"bpf":    linux.DT_DIR,
 		"cgroup": linux.DT_DIR,
 	})
 	pop = s.PathOpAtRoot("/fs/cgroup")
 	s.AssertAllDirentTypes(s.ListDirents(pop), map[string]testutil.DirentType{ /*empty*/ })
+}
+
+func TestKernelBPFAndTracingEntries(t *testing.T) {
+	s := newTestSystem(t, "" /*pciTestDir*/)
+	defer s.Destroy()
+
+	btfFD, err := s.VFS.OpenAt(s.Ctx, s.Creds, s.PathOpAtRoot("/kernel/btf/vmlinux"), &vfs.OpenOptions{})
+	if err != nil {
+		t.Fatalf("OpenAt(/kernel/btf/vmlinux) failed: %v", err)
+	}
+	defer btfFD.DecRef(s.Ctx)
+	if content, err := s.ReadToEnd(btfFD); err != nil {
+		t.Fatalf("ReadToEnd(/kernel/btf/vmlinux) failed: %v", err)
+	} else if len(content) == 0 {
+		t.Fatalf("/kernel/btf/vmlinux is empty")
+	}
+
+	for path, want := range map[string]string{
+		"/kernel/tracing/events/gvisor_net/packet/id":            "1100\n",
+		"/kernel/debug/tracing/events/raw_syscalls/sys_enter/id": "1000\n",
+	} {
+		fd, err := s.VFS.OpenAt(s.Ctx, s.Creds, s.PathOpAtRoot(path), &vfs.OpenOptions{})
+		if err != nil {
+			t.Fatalf("OpenAt(%s) failed: %v", path, err)
+		}
+		content, err := s.ReadToEnd(fd)
+		fd.DecRef(s.Ctx)
+		if err != nil {
+			t.Fatalf("ReadToEnd(%s) failed: %v", path, err)
+		}
+		if content != want {
+			t.Fatalf("%s = %q, want %q", path, content, want)
+		}
+	}
 }
 
 // Check that sysfs creates the required PCI paths for V4 TPUs.

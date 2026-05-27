@@ -42,6 +42,7 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/control"
 	"gvisor.dev/gvisor/pkg/sentry/devices/nvproxy"
 	"gvisor.dev/gvisor/pkg/sentry/devices/nvproxy/nvconf"
+	"gvisor.dev/gvisor/pkg/sentry/ebpf"
 	"gvisor.dev/gvisor/pkg/sentry/fdimport"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/host"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/tmpfs"
@@ -621,6 +622,7 @@ func New(args Args) (*Loader, error) {
 		NvidiaDriverVersion: args.NvidiaDriverVersion,
 		AllowSUID:           args.Conf.AllowSUID,
 		IOUringEnabled:      args.Conf.IOUring,
+		SentryEBPFConfig:    ebpf.DefaultConfig(args.Conf.ExperimentalSentryEBPF),
 	}
 
 	// Create memory file.
@@ -652,7 +654,7 @@ func New(args Args) (*Loader, error) {
 		return nil, fmt.Errorf("getting root credentials")
 	}
 	// Create root network namespace/stack.
-	netns, err := newRootNetworkNamespace(args.Conf, tk, creds.UserNamespace, l.k)
+	netns, err := newRootNetworkNamespace(args.Conf, tk, creds.UserNamespace, l.k, ebpfNetworkPacketObserver{kernel: l.k})
 	if err != nil {
 		return nil, fmt.Errorf("creating network: %w", err)
 	}
@@ -1666,7 +1668,7 @@ func (l *Loader) WaitExit() linux.WaitStatus {
 	return l.k.GlobalInit().ExitStatus()
 }
 
-func newRootNetworkNamespace(conf *config.Config, clock tcpip.Clock, userns *auth.UserNamespace, uid uniqueid.Provider) (*inet.Namespace, error) {
+func newRootNetworkNamespace(conf *config.Config, clock tcpip.Clock, userns *auth.UserNamespace, uid uniqueid.Provider, packetObserver stack.NetworkPacketObserver) (*inet.Namespace, error) {
 	// Create an empty network stack because the network namespace may be empty at
 	// this point. Netns is configured before Run() is called. Netstack is
 	// configured using a control uRPC message. Host network is configured inside
@@ -1687,6 +1689,7 @@ func newRootNetworkNamespace(conf *config.Config, clock tcpip.Clock, userns *aut
 			clock:                    clock,
 			allowPacketEndpointWrite: conf.AllowPacketEndpointWrite,
 			uid:                      uid,
+			networkPacketObserver:    packetObserver,
 		}
 		s, err := creator.newEmptySandboxNetworkStack()
 		if err != nil {
@@ -1721,6 +1724,7 @@ func (c *sandboxNetstackCreator) newEmptySandboxNetworkStack() (*netstack.Stack,
 		RawFactory:               raw.EndpointFactory{},
 		AllowPacketEndpointWrite: c.allowPacketEndpointWrite,
 		DefaultIPTables:          netfilter.DefaultLinuxTables,
+		NetworkPacketObserver:    c.networkPacketObserver,
 	}), c.uid.UniqueID())
 
 	if nftables.IsNFTablesEnabled() {
@@ -1764,6 +1768,7 @@ type sandboxNetstackCreator struct {
 	clock                    tcpip.Clock
 	allowPacketEndpointWrite bool
 	uid                      uniqueid.Provider
+	networkPacketObserver    stack.NetworkPacketObserver `state:"nosave"`
 }
 
 // CreateStack implements kernel.NetworkStackCreator.CreateStack.

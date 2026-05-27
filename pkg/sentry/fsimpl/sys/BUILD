@@ -37,6 +37,7 @@ go_library(
         "//pkg/log",
         "//pkg/refs",
         "//pkg/sentry/arch",
+        "//pkg/sentry/ebpf",
         "//pkg/sentry/fsimpl/host",
         "//pkg/sentry/fsimpl/kernfs",
         "//pkg/sentry/inet",

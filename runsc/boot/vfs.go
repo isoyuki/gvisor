@@ -44,6 +44,7 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/devices/tpuproxy/vfio"
 	"gvisor.dev/gvisor/pkg/sentry/devices/ttydev"
 	"gvisor.dev/gvisor/pkg/sentry/devices/tundev"
+	"gvisor.dev/gvisor/pkg/sentry/fsimpl/bpffs"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/cgroupfs"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/dev"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/devpts"
@@ -121,6 +122,10 @@ func registerFilesystems(k *kernel.Kernel, info *containerInfo) error {
 	vfsObj := k.VFS()
 
 	vfsObj.MustRegisterFilesystemType(cgroupfs.Name, &cgroupfs.FilesystemType{}, &vfs.RegisterFilesystemTypeOptions{
+		AllowUserMount: true,
+		AllowUserList:  true,
+	})
+	vfsObj.MustRegisterFilesystemType(bpffs.Name, &bpffs.FilesystemType{}, &vfs.RegisterFilesystemTypeOptions{
 		AllowUserMount: true,
 		AllowUserList:  true,
 	})
@@ -255,7 +260,7 @@ func setupContainerVFS(ctx context.Context, info *containerInfo, mntr *container
 // This function must NOT add/remove any gofer mounts or change their order.
 func compileMounts(spec *specs.Spec, conf *config.Config, containerID string) []specs.Mount {
 	// Keep track of whether proc and sys were mounted.
-	var procMounted, sysMounted, devMounted, devptsMounted, cgroupsMounted bool
+	var procMounted, sysMounted, devMounted, devptsMounted, cgroupsMounted, bpfMounted bool
 	var mounts []specs.Mount
 
 	// Mount all submounts from the spec.
@@ -280,6 +285,9 @@ func compileMounts(spec *specs.Spec, conf *config.Config, containerID string) []
 			devptsMounted = true
 		case "/sys/fs/cgroup":
 			cgroupsMounted = true
+		case "/sys/fs/bpf":
+			m.Type = bpffs.Name
+			bpfMounted = true
 		}
 
 		mounts = append(mounts, m)
@@ -311,6 +319,12 @@ func compileMounts(spec *specs.Spec, conf *config.Config, containerID string) []
 		mandatoryMounts = append(mandatoryMounts, specs.Mount{
 			Type:        devpts.Name,
 			Destination: "/dev/pts",
+		})
+	}
+	if !bpfMounted {
+		mandatoryMounts = append(mandatoryMounts, specs.Mount{
+			Type:        bpffs.Name,
+			Destination: "/sys/fs/bpf",
 		})
 	}
 
@@ -1034,6 +1048,8 @@ func getMountNameAndOptions(spec *specs.Spec, conf *config.Config, m *mountInfo,
 		if err != nil {
 			return "", nil, err
 		}
+
+	case bpffs.Name:
 
 	case erofs.Name:
 		if m.goferFD == nil {

@@ -66,6 +66,42 @@ type NetworkPacketInfo struct {
 	IsForwardedPacket bool
 }
 
+// NetworkPacketDirection identifies whether an observed packet is entering or
+// leaving the sandbox netstack.
+type NetworkPacketDirection uint8
+
+const (
+	// NetworkPacketIngress identifies a packet delivered from a link endpoint
+	// into the sandbox netstack.
+	NetworkPacketIngress NetworkPacketDirection = iota + 1
+
+	// NetworkPacketEgress identifies a packet written from the sandbox netstack
+	// toward a link endpoint.
+	NetworkPacketEgress
+)
+
+// NetworkPacketEvent is stable metadata for an observed sandbox network packet.
+type NetworkPacketEvent struct {
+	Direction         NetworkPacketDirection
+	NICID             tcpip.NICID
+	NetworkProtocol   tcpip.NetworkProtocolNumber
+	TransportProtocol tcpip.TransportProtocolNumber
+	// TotalLength is the observed PacketBuffer size in bytes. It is not rewritten
+	// from IP header length fields so malformed/truncated packets keep stable
+	// packet-path semantics.
+	TotalLength        uint32
+	SourceAddress      [16]byte
+	DestinationAddress [16]byte
+	SourcePort         uint16
+	DestinationPort    uint16
+}
+
+// NetworkPacketObserver observes sandbox-local network packet metadata.
+type NetworkPacketObserver interface {
+	IsObservingNetworkPackets(NetworkPacketDirection) bool
+	ObserveNetworkPacket(NetworkPacketEvent)
+}
+
 // TransportErrorKind enumerates error types that are handled by the transport
 // layer.
 type TransportErrorKind int

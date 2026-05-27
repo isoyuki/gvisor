@@ -26,6 +26,7 @@ import (
 // See linux/magic.h.
 const (
 	ANON_INODE_FS_MAGIC   = 0x09041934
+	BPF_FS_MAGIC          = 0xcafe4a11
 	CGROUP_SUPER_MAGIC    = 0x27e0eb
 	DEVPTS_SUPER_MAGIC    = 0x00001cd1
 	EXT_SUPER_MAGIC       = 0xef53

@@ -340,7 +340,7 @@ var AMD64 = &kernel.SyscallTable{
 		295: syscalls.SupportedPoint("preadv", Preadv, PointPreadv),
 		296: syscalls.SupportedPoint("pwritev", Pwritev, PointPwritev),
 		297: syscalls.Supported("rt_tgsigqueueinfo", RtTgsigqueueinfo),
-		298: syscalls.ErrorWithEvent("perf_event_open", linuxerr.ENODEV, "No support for perf counters", nil),
+		298: syscalls.PartiallySupported("perf_event_open", PerfEventOpen, "Only synthetic tracepoint perf events are supported.", nil),
 		299: syscalls.Supported("recvmmsg", RecvMMsg),
 		300: syscalls.ErrorWithEvent("fanotify_init", linuxerr.ENOSYS, "Needs CONFIG_FANOTIFY", nil),
 		301: syscalls.ErrorWithEvent("fanotify_mark", linuxerr.ENOSYS, "Needs CONFIG_FANOTIFY", nil),
@@ -363,7 +363,7 @@ var AMD64 = &kernel.SyscallTable{
 		318: syscalls.Supported("getrandom", GetRandom),
 		319: syscalls.Supported("memfd_create", MemfdCreate),
 		320: syscalls.CapError("kexec_file_load", linux.CAP_SYS_BOOT, "", nil),
-		321: syscalls.CapError("bpf", linux.CAP_SYS_ADMIN, "", nil),
+		321: syscalls.PartiallySupported("bpf", BPF, "Sandbox-local sentry eBPF support is gated by --experimental-sentry-ebpf.", nil),
 		322: syscalls.SupportedPoint("execveat", Execveat, PointExecveat),
 		323: syscalls.ErrorWithEvent("userfaultfd", linuxerr.ENOSYS, "", []string{"gvisor.dev/issue/266"}), // TODO(b/118906345)
 		324: syscalls.PartiallySupported("membarrier", Membarrier, "Not supported on all platforms.", nil),
@@ -663,7 +663,7 @@ var ARM64 = &kernel.SyscallTable{
 		238: syscalls.CapError("migrate_pages", linux.CAP_SYS_NICE, "", nil),
 		239: syscalls.CapError("move_pages", linux.CAP_SYS_NICE, "", nil), // requires cap_sys_nice (mostly)
 		240: syscalls.Supported("rt_tgsigqueueinfo", RtTgsigqueueinfo),
-		241: syscalls.ErrorWithEvent("perf_event_open", linuxerr.ENODEV, "No support for perf counters", nil),
+		241: syscalls.PartiallySupported("perf_event_open", PerfEventOpen, "Only synthetic tracepoint perf events are supported.", nil),
 		242: syscalls.SupportedPoint("accept4", Accept4, PointAccept4),
 		243: syscalls.Supported("recvmmsg", RecvMMsg),
 		260: syscalls.Supported("wait4", Wait4),
@@ -686,7 +686,7 @@ var ARM64 = &kernel.SyscallTable{
 		277: syscalls.Supported("seccomp", Seccomp),
 		278: syscalls.Supported("getrandom", GetRandom),
 		279: syscalls.Supported("memfd_create", MemfdCreate),
-		280: syscalls.CapError("bpf", linux.CAP_SYS_ADMIN, "", nil),
+		280: syscalls.PartiallySupported("bpf", BPF, "Sandbox-local sentry eBPF support is gated by --experimental-sentry-ebpf.", nil),
 		281: syscalls.SupportedPoint("execveat", Execveat, PointExecveat),
 		282: syscalls.ErrorWithEvent("userfaultfd", linuxerr.ENOSYS, "", []string{"gvisor.dev/issue/266"}), // TODO(b/118906345)
 		283: syscalls.PartiallySupported("membarrier", Membarrier, "Not supported on all platforms.", nil),

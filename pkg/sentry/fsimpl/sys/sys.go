@@ -29,6 +29,7 @@ import (
 	"gvisor.dev/gvisor/pkg/coverage"
 	"gvisor.dev/gvisor/pkg/errors/linuxerr"
 	"gvisor.dev/gvisor/pkg/log"
+	"gvisor.dev/gvisor/pkg/sentry/ebpf"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/kernfs"
 	"gvisor.dev/gvisor/pkg/sentry/kernel"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
@@ -119,6 +120,7 @@ func (fsType FilesystemType) GetFilesystem(ctx context.Context, vfsObj *vfs.Virt
 	if k.CgroupRegistry() != nil {
 		fsDirChildren["cgroup"] = fs.newCgroupDir(ctx, creds, defaultSysDirMode, nil)
 	}
+	fsDirChildren["bpf"] = fs.newDir(ctx, creds, defaultSysDirMode, nil)
 
 	classSub := map[string]kernfs.Inode{
 		"power_supply": fs.newDir(ctx, creds, defaultSysDirMode, nil),
@@ -294,14 +296,53 @@ func kernelDir(ctx context.Context, fs *filesystem, creds *auth.Credentials) map
 	// Set up /sys/kernel/debug/kcov. Technically, debugfs should be
 	// mounted at debug/, but for our purposes, it is sufficient to keep it
 	// in sys.
-	children := make(map[string]kernfs.Inode)
+	children := map[string]kernfs.Inode{
+		"btf":     kernelBTFDir(ctx, fs, creds),
+		"tracing": kernelTracingDir(ctx, fs, creds),
+	}
+	debugChildren := map[string]kernfs.Inode{
+		"tracing": kernelTracingDir(ctx, fs, creds),
+	}
 	if coverage.KcovSupported() {
 		log.Debugf("Set up /sys/kernel/debug/kcov")
-		children["debug"] = fs.newDir(ctx, creds, linux.FileMode(0700), map[string]kernfs.Inode{
-			"kcov": fs.newKcovFile(ctx, creds),
+		debugChildren["kcov"] = fs.newKcovFile(ctx, creds)
+	}
+	children["debug"] = fs.newDir(ctx, creds, linux.FileMode(0700), debugChildren)
+	return children
+}
+
+func kernelBTFDir(ctx context.Context, fs *filesystem, creds *auth.Credentials) kernfs.Inode {
+	data := string(ebpf.SyntheticBTFBlob())
+	return fs.newDir(ctx, creds, defaultSysDirMode, map[string]kernfs.Inode{
+		"vmlinux": fs.newStaticFile(ctx, creds, defaultSysMode, data),
+		"gvisor":  fs.newStaticFile(ctx, creds, defaultSysMode, data),
+	})
+}
+
+func kernelTracingDir(ctx context.Context, fs *filesystem, creds *auth.Credentials) kernfs.Inode {
+	groups := make(map[string]map[string]kernfs.Inode)
+	for _, ev := range ebpf.TracepointEvents() {
+		events := groups[ev.Group]
+		if events == nil {
+			events = make(map[string]kernfs.Inode)
+			groups[ev.Group] = events
+		}
+		events[ev.Name] = fs.newDir(ctx, creds, defaultSysDirMode, map[string]kernfs.Inode{
+			"id":     fs.newStaticFile(ctx, creds, defaultSysMode, fmt.Sprintf("%d\n", ev.ID)),
+			"format": fs.newStaticFile(ctx, creds, defaultSysMode, tracepointFormat(ev)),
 		})
 	}
-	return children
+	groupDirs := make(map[string]kernfs.Inode, len(groups))
+	for group, events := range groups {
+		groupDirs[group] = fs.newDir(ctx, creds, defaultSysDirMode, events)
+	}
+	return fs.newDir(ctx, creds, defaultSysDirMode, map[string]kernfs.Inode{
+		"events": fs.newDir(ctx, creds, defaultSysDirMode, groupDirs),
+	})
+}
+
+func tracepointFormat(ev ebpf.TracepointEvent) string {
+	return fmt.Sprintf("name: %s\nID: %d\nformat:\n\tfield:unsigned short common_type;\toffset:0;\tsize:2;\tsigned:0;\n", ev.Name, ev.ID)
 }
 
 // Recursively build out IOMMU directories from the host.

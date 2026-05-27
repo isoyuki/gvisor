@@ -28,6 +28,7 @@ import (
 	"gvisor.dev/gvisor/pkg/marshal"
 	"gvisor.dev/gvisor/pkg/metric"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
+	"gvisor.dev/gvisor/pkg/sentry/ebpf"
 	"gvisor.dev/gvisor/pkg/sentry/memmap"
 	"gvisor.dev/gvisor/pkg/sentry/platform"
 	"gvisor.dev/gvisor/pkg/sentry/seccheck"
@@ -85,6 +86,9 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 	s := t.SyscallTable()
 
 	fe := s.FeatureEnable.Word(sysno)
+	if mgr := t.Kernel().EBPF(); mgr != nil && mgr.Enabled() {
+		mgr.RunSyscallEnter(sysno, syscallArgsArray(args), ebpfTaskInfo(t))
+	}
 
 	var straceContext any
 	if bits.IsAnyOn(fe, StraceEnableBits) {
@@ -154,6 +158,9 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 		t.invokeExternal()
 		// Don't reinvoke the unix.
 	}
+	if mgr := t.Kernel().EBPF(); mgr != nil && mgr.Enabled() {
+		mgr.RunSyscallExit(sysno, rval, ebpfTaskInfo(t))
+	}
 
 	if bits.IsAnyOn(fe, StraceEnableBits) {
 		s.Stracer.SyscallExit(straceContext, t, sysno, rval, err)
@@ -204,6 +211,28 @@ func (t *Task) executeSyscall(sysno uintptr, args arch.SyscallArguments) (rval u
 	}
 
 	return
+}
+
+func syscallArgsArray(args arch.SyscallArguments) [6]uint64 {
+	return [6]uint64{
+		args[0].Uint64(),
+		args[1].Uint64(),
+		args[2].Uint64(),
+		args[3].Uint64(),
+		args[4].Uint64(),
+		args[5].Uint64(),
+	}
+}
+
+func ebpfTaskInfo(t *Task) ebpf.TaskInfo {
+	creds := t.Credentials()
+	return ebpf.TaskInfo{
+		PID:  uint32(t.ThreadID()),
+		TGID: uint32(t.ThreadGroup().ID()),
+		UID:  uint32(creds.EffectiveKUID.In(creds.UserNamespace).OrOverflow()),
+		GID:  uint32(creds.EffectiveKGID.In(creds.UserNamespace).OrOverflow()),
+		Comm: t.Name(),
+	}
 }
 
 // doSyscall is the entry point for an invocation of a system call specified by

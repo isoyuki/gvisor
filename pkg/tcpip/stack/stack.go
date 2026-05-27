@@ -191,6 +191,10 @@ type Stack struct {
 	// disabled. This means all non-loopback NICs are disabled.
 	externalNetworkingDisabled bool
 
+	// networkPacketObserver observes sandbox-local ingress and egress packet
+	// metadata. It is immutable after stack creation.
+	networkPacketObserver NetworkPacketObserver `state:"nosave"`
+
 	// allowConnectedOnSave indicates whether connections should be
 	// allowed to remain connected during save.
 	allowConnectedOnSave bool
@@ -266,6 +270,10 @@ type Options struct {
 
 	// SecureRNG is a cryptographically secure random number generator.
 	SecureRNG io.Reader
+
+	// NetworkPacketObserver observes sandbox-local ingress and egress packet
+	// metadata.
+	NetworkPacketObserver NetworkPacketObserver
 }
 
 // TransportEndpointInfo holds useful information about a transport endpoint
@@ -418,6 +426,7 @@ func New(opts Options) *Stack {
 		nudDisp:                      opts.NUDDisp,
 		insecureRNG:                  insecureRNG,
 		secureRNG:                    secureRNG,
+		networkPacketObserver:        opts.NetworkPacketObserver,
 		sendBufferSize: tcpip.SendBufferSizeOption{
 			Min:     MinBufferSize,
 			Default: DefaultBufferSize,

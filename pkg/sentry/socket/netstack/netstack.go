@@ -47,6 +47,7 @@ import (
 	"gvisor.dev/gvisor/pkg/marshal/primitive"
 	"gvisor.dev/gvisor/pkg/metric"
 	"gvisor.dev/gvisor/pkg/sentry/arch"
+	"gvisor.dev/gvisor/pkg/sentry/ebpf"
 	"gvisor.dev/gvisor/pkg/sentry/fsimpl/sockfs"
 	"gvisor.dev/gvisor/pkg/sentry/inet"
 	"gvisor.dev/gvisor/pkg/sentry/kernel"
@@ -435,7 +436,8 @@ type sock struct {
 	mu sync.Mutex `state:"nosave"`
 	// readWriter is an optimization to avoid allocations.
 	// +checklocks:mu
-	readWriter usermem.IOSequenceReadWriter `state:"nosave"`
+	readWriter   usermem.IOSequenceReadWriter `state:"nosave"`
+	socketFilter *ebpf.Program
 
 	// readMu protects access to the below fields.
 	readMu sync.Mutex `state:"nosave"`
@@ -494,6 +496,13 @@ func New(t *kernel.Task, family int, skType linux.SockType, protocol int, queue 
 // Release implements vfs.FileDescriptionImpl.Release.
 func (s *sock) Release(ctx context.Context) {
 	kernel.KernelFromContext(ctx).DeleteSocket(&s.vfsfd)
+	s.mu.Lock()
+	filter := s.socketFilter
+	s.socketFilter = nil
+	s.mu.Unlock()
+	if filter != nil {
+		filter.DecRef(ctx)
+	}
 	e, ch := waiter.NewChannelEntry(waiter.EventHUp | waiter.EventErr)
 	s.EventRegister(&e)
 	defer s.EventUnregister(&e)
@@ -514,6 +523,37 @@ func (s *sock) Release(ctx context.Context) {
 		}
 	}
 	s.namespace.DecRef(ctx)
+}
+
+func (s *sock) attachBPFSocketFilter(t *kernel.Task, fd int32) *syserr.Error {
+	file := t.GetFile(fd)
+	if file == nil {
+		return syserr.ErrBadFD
+	}
+	defer file.DecRef(t)
+	prog, ok := ebpf.ProgramFromFile(file)
+	if !ok || prog.Type() != linux.BPF_PROG_TYPE_SOCKET_FILTER {
+		return syserr.ErrInvalidArgument
+	}
+	prog.IncRef()
+	s.mu.Lock()
+	old := s.socketFilter
+	s.socketFilter = prog
+	s.mu.Unlock()
+	if old != nil {
+		old.DecRef(t)
+	}
+	return nil
+}
+
+func (s *sock) detachBPFSocketFilter(ctx context.Context) {
+	s.mu.Lock()
+	old := s.socketFilter
+	s.socketFilter = nil
+	s.mu.Unlock()
+	if old != nil {
+		old.DecRef(ctx)
+	}
 }
 
 // Epollable implements FileDescriptionImpl.Epollable.
@@ -2145,7 +2185,19 @@ func SetSockOptSocket(t *kernel.Task, s socket.Socket, ep commonEndpoint, name i
 	case linux.SO_DETACH_FILTER:
 		// optval is ignored.
 		var v tcpip.SocketDetachFilterOption
+		if ns, ok := s.(*sock); ok {
+			ns.detachBPFSocketFilter(t)
+		}
 		return syserr.TranslateNetstackError(ep.SetSockOpt(&v))
+	case linux.SO_ATTACH_BPF:
+		if len(optVal) < sizeOfInt32 {
+			return syserr.ErrInvalidArgument
+		}
+		ns, ok := s.(*sock)
+		if !ok {
+			return syserr.ErrInvalidArgument
+		}
+		return ns.attachBPFSocketFilter(t, int32(hostarch.ByteOrder.Uint32(optVal)))
 
 	// TODO(b/226603727): Add support for SO_RCVLOWAT option. For now, only
 	// the unsupported syscall message is removed.
@@ -2187,7 +2239,6 @@ func SetSockOptSocket(t *kernel.Task, s socket.Socket, ep commonEndpoint, name i
 		linux.SO_MAX_PACING_RATE,
 		linux.SO_BPF_EXTENSIONS,
 		linux.SO_INCOMING_CPU,
-		linux.SO_ATTACH_BPF,
 		linux.SO_ATTACH_REUSEPORT_CBPF,
 		linux.SO_ATTACH_REUSEPORT_EBPF,
 		linux.SO_CNX_ADVICE,
